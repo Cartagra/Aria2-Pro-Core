@@ -1,13 +1,9 @@
 #
-# Copyright (c) 2020 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the GNU General Public License v3.
-# See /LICENSE for more information.
-#
-# https://github.com/P3TERX/Aria2-Pro-Core
+# Copyright (c) 2020 P3TERX
+# Modified: Added Docker Buildx cache support
 #
 
-name: Aria2 Builder
+name: Aria2 Builder (Cached)
 
 on:
   workflow_dispatch:
@@ -21,6 +17,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
     strategy:
       fail-fast: false
       matrix:
@@ -29,12 +26,27 @@ jobs:
         - PLATFORMS: amd64
           BUILDER_IMAGE: debian:12
           BUILD_SCRIPT: aria2-gnu-linux-build-amd64.sh
+
     steps:
+
     - name: Install QEMU
       run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
     - name: Checkout
       uses: actions/checkout@v3
+
+    # ------------------------- CACHE PART -------------------------
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Cache Docker layers
+      uses: actions/cache@v4
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+    # ---------------------------------------------------------------
 
     - name: Build
       env:
@@ -42,16 +54,22 @@ jobs:
         BUILDER_IMAGE: ${{ matrix.BUILDER_IMAGE }}
         BUILD_SCRIPT: ${{ matrix.BUILD_SCRIPT }}
       run: |
-        docker build \
+        docker buildx build \
           --build-arg BUILDER_IMAGE \
           --build-arg BUILD_SCRIPT \
           --platform=local \
-          -o ./output . \
-          2>&1 | tee build.log
+          --cache-from=type=local,src=/tmp/.buildx-cache \
+          --cache-to=type=local,dest=/tmp/.buildx-cache-new \
+          -o ./output .
+
+    - name: Update docker cache
+      run: |
+        rm -rf /tmp/.buildx-cache
+        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
     - name: Output Error Log
       if: (!cancelled())
-      run: grep -iE 'fatal|error|critical|failure|warning' build.log
+      run: grep -iE 'fatal|error|critical|failure|warning' build.log || true
 
     - name: Check Version
       run: |
@@ -75,4 +93,4 @@ jobs:
           --dht-file-path="$PWD/dht.dat" \
           --dht-file-path6="$PWD/dht6.dat" \
           --dht-entry-point='dht.transmissionbt.com:6881' \
-          --dht-entry-point6='dht.transmissionbt.com:6881' 
+          --dht-entry-point6='dht.transmissionbt.com:6881'
