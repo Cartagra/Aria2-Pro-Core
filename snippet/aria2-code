@@ -30,7 +30,9 @@ ARIA2_RELEASE_CODE() {
 }
 
 ARIA2_PATCH() {
-    git apply $SCRIPT_DIR/patch/*.patch
+    git apply $SCRIPT_DIR/patch/0001-options-unlock-connection-per-server-limit.patch
+    git apply $SCRIPT_DIR/patch/0002-download-retry-on-slow-speed-and-reset.patch  
+    git apply $SCRIPT_DIR/patch/0003-option-add-option-to-retry-on-http-4xx.patch
 }
 
 ARIA2_CODE_GET() {
