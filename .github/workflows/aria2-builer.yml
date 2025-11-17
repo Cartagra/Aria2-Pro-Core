@@ -1,12 +1,17 @@
 #
-# Copyright (c) 2020 P3TERX
-# Modified: Added Docker Buildx cache support
+# Copyright (c) 2020 P3TERX <https://p3terx.com>
+#
+# This is free software, licensed under the GNU General Public License v3.
+# See /LICENSE for more information.
+#
+# https://github.com/P3TERX/Aria2-Pro-Core
 #
 
-name: Aria2 Builder (ccache + multi-arch)
+name: Aria2 Builder
 
 on:
   workflow_dispatch:
+  repository_dispatch:
   push:
     paths-ignore:
       - '**.md'
@@ -15,93 +20,63 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
+        PLATFORMS: [amd64, arm64, armhf, i386]
         include:
-          - PLATFORM: amd64
-            BUILD_SCRIPT: aria2-gnu-linux-build-amd64.sh
-          - PLATFORM: arm64
-            BUILD_SCRIPT: aria2-gnu-linux-cross-build-arm64.sh
-          - PLATFORM: armhf
-            BUILD_SCRIPT: aria2-gnu-linux-cross-build-armhf.sh
-          - PLATFORM: i386
-            BUILD_SCRIPT: aria2-gnu-linux-cross-build-i386.sh
+        - PLATFORMS: amd64
+          BUILDER_IMAGE: debian:12
+          BUILD_SCRIPT: aria2-gnu-linux-build-amd64.sh
+        - PLATFORMS: arm64
+          BUILDER_IMAGE: debian:12
+          BUILD_SCRIPT: aria2-gnu-linux-cross-build-arm64.sh
+        - PLATFORMS: armhf
+          BUILDER_IMAGE: ubuntu:20.04
+          BUILD_SCRIPT: aria2-gnu-linux-cross-build-armhf.sh
+        - PLATFORMS: i386
+          BUILDER_IMAGE: debian:11
+          BUILD_SCRIPT: aria2-gnu-linux-cross-build-i386.sh
 
     steps:
-      # -------------------------
-      # 1. Checkout source code
-      # -------------------------
-      - name: Checkout
-        uses: actions/checkout@v3
 
-      # -------------------------
-      # 2. Install build dependencies
-      # -------------------------
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential pkg-config automake autoconf libssl-dev ccache
+    - name: Install QEMU
+      run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
-      # -------------------------
-      # 3. Restore per-platform ccache
-      # -------------------------
-      - name: Restore ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache-${{ matrix.PLATFORM }}
-          key: ccache-${{ runner.os }}-${{ matrix.PLATFORM }}-${{ hashFiles('**/*.c','**/*.cpp','**/*.h') }}
-          restore-keys: |
-            ccache-${{ runner.os }}-${{ matrix.PLATFORM }}-
+    - name: Checkout
+      uses: actions/checkout@v3
 
-      # -------------------------
-      # 4. Configure ccache
-      # -------------------------
-      - name: Configure ccache
-        run: |
-          mkdir -p ~/.ccache-${{ matrix.PLATFORM }}
-          export CCACHE_DIR=~/.ccache-${{ matrix.PLATFORM }}
-          export PATH="/usr/lib/ccache:$PATH"
-          echo "export CCACHE_DIR=$CCACHE_DIR" >> $GITHUB_ENV
-          echo "export PATH=/usr/lib/ccache:$PATH" >> $GITHUB_ENV
+    - name: Build
+      env:
+        DOCKER_BUILDKIT: 1
+        BUILDER_IMAGE: ${{ matrix.BUILDER_IMAGE }}
+        BUILD_SCRIPT: ${{ matrix.BUILD_SCRIPT }}
+      run: |
+        docker build \
+          --build-arg BUILDER_IMAGE \
+          --build-arg BUILD_SCRIPT \
+          --platform=local \
+          -o ./output . \
+          2>&1 | tee build.log
 
-      # -------------------------
-      # 5. Build aria2
-      # -------------------------
-      - name: Build aria2
-        run: |
-          chmod +x ./${{ matrix.BUILD_SCRIPT }}
-          ./${{ matrix.BUILD_SCRIPT }}
+    - name: Output Error Log
+      if: (!cancelled())
+      run: grep -iE 'fatal|error|critical|failure|warning' build.log
 
-      # -------------------------
-      # 6. Show ccache stats
-      # -------------------------
-      - name: Display ccache stats
-        run: |
-          ccache -s
+    - name: Check Version
+      run: |
+        tar xzvf ./output/aria2*.tar.gz
+        file aria2c 2>&1 | tee ./output/file-type-${{ matrix.PLATFORMS }}.txt
+        ./aria2c -v 2>&1 | tee ./output/version-${{ matrix.PLATFORMS }}.txt
 
-      # -------------------------
-      # 7. Save per-platform ccache
-      # -------------------------
-      - name: Save ccache
-        if: success()
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache-${{ matrix.PLATFORM }}
-          key: ccache-${{ runner.os }}-${{ matrix.PLATFORM }}-${{ github.run_id }}
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: aria2-${{ matrix.PLATFORMS }}
+        path: output
 
-      # -------------------------
-      # 8. Upload build artifact
-      # -------------------------
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: aria2-${{ matrix.PLATFORM }}
-          path: output
-
-
-      - name: Functional Testing
-        run: |
-          ./aria2c https://raw.githubusercontent.com/P3TERX/aria2.conf/master/dht.dat
-          ./aria2c https://raw.githubusercontent.com/P3TERX/aria2.conf/master/dht6.dat
+    - name: Functional Testing
+      run: |
+        ./aria2c https://raw.githubusercontent.com/P3TERX/aria2.conf/master/dht.dat
+        ./aria2c https://raw.githubusercontent.com/P3TERX/aria2.conf/master/dht6.dat
