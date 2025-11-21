@@ -17,6 +17,7 @@ set -o errtrace
 set -o pipefail
 set -o nounset
 
+# --- 字体颜色定义 ---
 Green_font_prefix="\033[32m"
 Red_font_prefix="\033[31m"
 Green_background_prefix="\033[42;37m"
@@ -25,12 +26,15 @@ Font_color_suffix="\033[0m"
 INFO="[${Green_font_prefix}INFO${Font_color_suffix}]"
 ERROR="[${Red_font_prefix}ERROR${Font_color_suffix}]"
 
+# --- 路径和项目定义 ---
 PROJECT_NAME='Aria2 Pro Core'
-GH_API_URL='https://api.github.com/repos/P3TERX/Aria2-Pro-Core/releases/latest'
+# 改造后的基础下载 URL：使用您提供的 Raw 链接格式
+GITHUB_RAW_URL_BASE='https://github.com/Cartagra/Aria2-Pro-Core/raw/refs/heads/master/' 
 BIN_DIR='/usr/local/bin'
 BIN_NAME='aria2c'
 BIN_FILE="${BIN_DIR}/${BIN_NAME}"
 
+# --- 环境检查 ---
 if [[ $(uname -s) != Linux ]]; then
     echo -e "${ERROR} This operating system is not supported."
     exit 1
@@ -41,6 +45,7 @@ if [[ $(id -u) != 0 ]]; then
     exit 1
 fi
 
+# --- 获取 CPU 架构并确定下载关键字 ---
 echo -e "${INFO} Get CPU architecture ..."
 if [[ $(command -v apk) ]]; then
     PKGT='(apk)'
@@ -71,16 +76,31 @@ arm*)
 esac
 echo -e "${INFO} Architecture: ${OS_ARCH} ${PKGT}"
 
-echo -e "${INFO} Get ${PROJECT_NAME} download URL ..."
-DOWNLOAD_URL=$(curl -fsSL ${GH_API_URL} | grep 'browser_download_url' | cut -d'"' -f4 | grep "${FILE_KEYWORD}")
+# --- 构造下载 URL (改造后的逻辑) ---
+echo -e "${INFO} Get ${PROJECT_NAME} download URL from repository raw content ..."
+
+# 核心改造点 A: 构造 tar.gz 压缩包的文件名
+BINARY_ARCHIVE_NAME="aria2-static-linux-${FILE_KEYWORD}.tar.gz" 
+DOWNLOAD_URL="${GITHUB_RAW_URL_BASE}${BINARY_ARCHIVE_NAME}"
+
 echo -e "${INFO} Download URL: ${DOWNLOAD_URL}"
 
-echo -e "${INFO} Installing ${PROJECT_NAME} ..."
+# --- 执行安装 (改造后的逻辑：下载并解压) ---
+echo -e "${INFO} Installing ${PROJECT_NAME} by downloading and extracting ${BINARY_ARCHIVE_NAME} ..."
+
+# 核心改造点 B: 使用 curl 下载并管道到 tar 解压
+# -L: 跟随重定向, -S: 显示错误, xzC ${BIN_DIR}: 解压 XZ 压缩包到目标目录
 curl -LS "${DOWNLOAD_URL}" | tar xzC ${BIN_DIR}
+
+# 赋予执行权限
 chmod +x ${BIN_FILE}
+
+# 验证安装结果
 if [[ -s ${BIN_FILE} && $(${BIN_NAME} -v) ]]; then
-    echo -e "${INFO} Done."
+    echo -e "${INFO} Done. ${PROJECT_NAME} installed at ${BIN_FILE}"
 else
     echo -e "${ERROR} ${PROJECT_NAME} installation failed !"
+    # 失败时删除文件并退出
+    rm -f ${BIN_FILE} 
     exit 1
 fi
